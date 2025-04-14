@@ -1,0 +1,401 @@
+import numpy as np
+import time
+
+class CheckersGame:
+    def __init__(self):
+        # Initialize 8x8 board: 0 = empty, 1 = white, 2 = black
+        # Kings will be represented as 3 (white king) and 4 (black king)
+        self.board = np.zeros((8, 8), dtype=int)
+        self.reset_board()
+        self.game_over = False
+        self.winner = None
+        self.turn = 1  # 1 for white (human), 2 for black (AI)
+        self.must_jump = False
+        self.jump_piece = None
+    
+    def reset_board(self):
+        # Initialize with standard starting positions
+        self.board = np.zeros((8, 8), dtype=int)
+        
+        # Set up black pieces (AI)
+        for row in range(3):
+            for col in range(8):
+                if (row + col) % 2 == 1:  # Black squares
+                    self.board[row][col] = 2
+        
+        # Set up white pieces (human)
+        for row in range(5, 8):
+            for col in range(8):
+                if (row + col) % 2 == 1:  # Black squares
+                    self.board[row][col] = 1
+    
+    def print_board(self):
+        """Print the current state of the board"""
+        print("  0 1 2 3 4 5 6 7")
+        for i in range(8):
+            row_str = f"{i} "
+            for j in range(8):
+                if self.board[i][j] == 0:
+                    row_str += ". "
+                elif self.board[i][j] == 1:
+                    row_str += "w "
+                elif self.board[i][j] == 2:
+                    row_str += "b "
+                elif self.board[i][j] == 3:
+                    row_str += "W "
+                elif self.board[i][j] == 4:
+                    row_str += "B "
+            print(row_str)
+        print()
+    
+    def is_valid_position(self, row, col):
+        """Check if a position is within the board boundaries"""
+        return 0 <= row < 8 and 0 <= col < 8
+    
+    def get_valid_moves(self, player):
+        """Get all valid moves for a player"""
+        valid_moves = {}
+        jumps = {}
+        
+        # If we must jump with a specific piece
+        if self.must_jump and self.jump_piece:
+            row, col = self.jump_piece
+            piece_jumps = self.get_jumps(row, col, player)
+            if piece_jumps:
+                jumps[(row, col)] = piece_jumps
+            return jumps if jumps else {}
+        
+        # Check all pieces
+        for row in range(8):
+            for col in range(8):
+                if self.board[row][col] in [player, player + 2]:  # Regular piece or king
+                    # Check for jumps
+                    piece_jumps = self.get_jumps(row, col, player)
+                    if piece_jumps:
+                        jumps[(row, col)] = piece_jumps
+                    
+                    # If no jump is mandatory, check regular moves
+                    if not jumps:
+                        piece_moves = self.get_regular_moves(row, col, player)
+                        if piece_moves:
+                            valid_moves[(row, col)] = piece_moves
+        
+        # Jumps are mandatory
+        if jumps:
+            return jumps
+        return valid_moves
+    
+    def get_regular_moves(self, row, col, player):
+        """Get regular diagonal moves for a piece"""
+        moves = []
+        piece = self.board[row][col]
+        
+        # Movement directions based on piece type
+        directions = []
+        if player == 1 or piece == 3:  # White or white king
+            directions.extend([(-1, -1), (-1, 1)])  # White moves up
+        if player == 2 or piece == 4:  # Black or black king
+            directions.extend([(1, -1), (1, 1)])  # Black moves down
+        
+        # Check each direction
+        for dr, dc in directions:
+            new_row, new_col = row + dr, col + dc
+            if self.is_valid_position(new_row, new_col) and self.board[new_row][new_col] == 0:
+                moves.append((new_row, new_col))
+        
+        return moves
+    
+    def get_jumps(self, row, col, player):
+        """Get all possible jumps for a piece"""
+        jumps = []
+        piece = self.board[row][col]
+        
+        # Jump directions based on piece type
+        directions = []
+        if player == 1 or piece == 3:  # White or white king
+            directions.extend([(-1, -1), (-1, 1)])  # White moves up
+        if player == 2 or piece == 4:  # Black or black king
+            directions.extend([(1, -1), (1, 1)])  # Black moves down
+        
+        # Check each direction for a jump
+        for dr, dc in directions:
+            jump_row, jump_col = row + 2*dr, col + 2*dc
+            opponent_row, opponent_col = row + dr, col + dc
+            
+            # Make sure jump position is on board and empty
+            if self.is_valid_position(jump_row, jump_col) and self.board[jump_row][jump_col] == 0:
+                # Check if jumping over an opponent's piece
+                opponent_piece = self.board[opponent_row][opponent_col]
+                if (player == 1 and opponent_piece in [2, 4]) or (player == 2 and opponent_piece in [1, 3]):
+                    jumps.append((jump_row, jump_col))
+        
+        return jumps
+    
+    def make_move(self, start, end, player):
+        """Move a piece on the board and handle captures"""
+        start_row, start_col = start
+        end_row, end_col = end
+        
+        # Get the piece type
+        piece = self.board[start_row][start_col]
+        
+        # Check if it's a jump (capturing move)
+        if abs(start_row - end_row) == 2:
+            # Find and remove the captured piece
+            captured_row = (start_row + end_row) // 2
+            captured_col = (start_col + end_col) // 2
+            self.board[captured_row][captured_col] = 0
+        
+        # Move the piece
+        self.board[end_row][end_col] = piece
+        self.board[start_row][start_col] = 0
+        
+        # Check for kinging
+        if (player == 1 and end_row == 0) or (player == 2 and end_row == 7):
+            self.board[end_row][end_col] = player + 2  # King the piece
+        
+        # Check for multi-jumps
+        if abs(start_row - end_row) == 2:
+            jumps = self.get_jumps(end_row, end_col, player)
+            if jumps:
+                self.must_jump = True
+                self.jump_piece = (end_row, end_col)
+                return False  # Turn not over, must jump again
+            
+        # Reset jump flags
+        self.must_jump = False
+        self.jump_piece = None
+        return True  # Turn is over
+    
+    def check_game_over(self):
+        """Check if the game is over and determine the winner"""
+        # Count pieces
+        white_pieces = np.sum((self.board == 1) | (self.board == 3))
+        black_pieces = np.sum((self.board == 2) | (self.board == 4))
+        
+        # Check if one player has no pieces left
+        if white_pieces == 0:
+            self.game_over = True
+            self.winner = 2  # Black wins
+            return True
+        if black_pieces == 0:
+            self.game_over = True
+            self.winner = 1  # White wins
+            return True
+        
+        # Check if one player has no valid moves
+        white_moves = self.get_valid_moves(1)
+        black_moves = self.get_valid_moves(2)
+        
+        if not white_moves:
+            self.game_over = True
+            self.winner = 2  # Black wins
+            return True
+        if not black_moves:
+            self.game_over = True
+            self.winner = 1  # White wins
+            return True
+        
+        # Check for a draw (no one can move effectively)
+        if not white_moves and not black_moves:
+            self.game_over = True
+            self.winner = 0  # Draw
+            return True
+        
+        return False
+    
+    def switch_turn(self):
+        """Switch turns between players"""
+        self.turn = 2 if self.turn == 1 else 1
+
+
+class MinimaxAI:
+    def __init__(self, max_depth=4):
+        self.max_depth = max_depth
+    
+    def evaluate_board(self, board):
+        """Simple evaluation function counting pieces and kings"""
+        # Weights for pieces
+        regular_piece_weight = 1
+        king_weight = 2
+        
+        # Count pieces
+        white_pieces = np.sum(board == 1) * regular_piece_weight
+        white_kings = np.sum(board == 3) * king_weight
+        black_pieces = np.sum(board == 2) * regular_piece_weight
+        black_kings = np.sum(board == 4) * king_weight
+        
+        # Calculate advantage (positive is better for AI/black)
+        return (black_pieces + black_kings) - (white_pieces + white_kings)
+    
+    def minimax(self, game, depth, alpha, beta, maximizing_player):
+        """Minimax algorithm with alpha-beta pruning"""
+        if depth == 0 or game.game_over:
+            return self.evaluate_board(game.board), None
+        
+        if maximizing_player:  # AI's turn (black)
+            max_eval = float('-inf')
+            best_move = None
+            valid_moves = game.get_valid_moves(2)  # Black pieces
+            
+            for start, moves in valid_moves.items():
+                for end in moves:
+                    # Create a deep copy for simulation
+                    game_copy = CheckersGame()
+                    game_copy.board = np.copy(game.board)
+                    game_copy.turn = game.turn
+                    
+                    # Simulate move
+                    game_copy.make_move(start, end, 2)
+                    game_copy.check_game_over()
+                    
+                    eval_score, _ = self.minimax(game_copy, depth - 1, alpha, beta, False)
+                    
+                    if eval_score > max_eval:
+                        max_eval = eval_score
+                        best_move = (start, end)
+                    
+                    alpha = max(alpha, eval_score)
+                    if beta <= alpha:
+                        break  # Beta cutoff
+            
+            return max_eval, best_move
+            
+        else:  # Human's turn (white)
+            min_eval = float('inf')
+            best_move = None
+            valid_moves = game.get_valid_moves(1)  # White pieces
+            
+            for start, moves in valid_moves.items():
+                for end in moves:
+                    # Create a deep copy for simulation
+                    game_copy = CheckersGame()
+                    game_copy.board = np.copy(game.board)
+                    game_copy.turn = game.turn
+                    
+                    # Simulate move
+                    game_copy.make_move(start, end, 1)
+                    game_copy.check_game_over()
+                    
+                    eval_score, _ = self.minimax(game_copy, depth - 1, alpha, beta, True)
+                    
+                    if eval_score < min_eval:
+                        min_eval = eval_score
+                        best_move = (start, end)
+                    
+                    beta = min(beta, eval_score)
+                    if beta <= alpha:
+                        break  # Alpha cutoff
+            
+            return min_eval, best_move
+    
+    def get_best_move(self, game):
+        """Find the best move for the AI using minimax with alpha-beta pruning"""
+        _, best_move = self.minimax(game, self.max_depth, float('-inf'), float('inf'), True)
+        return best_move
+
+
+def main():
+    """Main function to run the game"""
+    game = CheckersGame()
+    ai = MinimaxAI(max_depth=3)  # Adjust depth based on desired difficulty
+    
+    print("Welcome to Checkers!")
+    print("You are playing as White (w/W), and the AI is Black (b/B).")
+    print("Enter moves as 'row,col -> new_row,new_col' (e.g., '5,0 -> 4,1')")
+    print("Uppercase letters represent kings.")
+    print()
+    
+    while not game.game_over:
+        game.print_board()
+        
+        if game.turn == 1:  # Human's turn
+            print("Your turn (White)")
+            
+            valid_moves = game.get_valid_moves(1)
+            if not valid_moves:
+                print("No valid moves available. You lose!")
+                game.winner = 2
+                break
+            
+            # Display valid moves
+            print("Valid moves:")
+            for start, ends in valid_moves.items():
+                for end in ends:
+                    print(f"({start[0]},{start[1]}) -> ({end[0]},{end[1]})")
+            
+            # Get player input
+            try:
+                move_str = input("Enter your move: ")
+                parts = move_str.replace(" ", "").split("->")
+                start = tuple(map(int, parts[0].split(",")))
+                end = tuple(map(int, parts[1].split(",")))
+                
+                # Validate move
+                if start not in valid_moves or end not in valid_moves[start]:
+                    print("Invalid move! Try again.")
+                    continue
+                
+                # Make the move
+                turn_complete = game.make_move(start, end, 1)
+                print(f"Player moves: ({start[0]},{start[1]}) -> ({end[0]},{end[1]})")
+                
+                # Check for multi-jumps
+                if not turn_complete:
+                    game.print_board()
+                    print("You must continue jumping!")
+                    continue
+                
+            except (ValueError, IndexError):
+                print("Invalid input format. Use 'row,col -> new_row,new_col'")
+                continue
+            
+        else:  # AI's turn
+            print("AI's turn (Black)")
+            
+            valid_moves = game.get_valid_moves(2)
+            if not valid_moves:
+                print("AI has no valid moves. You win!")
+                game.winner = 1
+                break
+            
+            # Get AI move
+            start_time = time.time()
+            best_move = ai.get_best_move(game)
+            end_time = time.time()
+            
+            if best_move:
+                start, end = best_move
+                turn_complete = game.make_move(start, end, 2)
+                
+                # Check if a capture was made
+                capture_text = " [Capture!]" if abs(start[0] - end[0]) == 2 else ""
+                print(f"AI moves: ({start[0]},{start[1]}) -> ({end[0]},{end[1]}){capture_text}")
+                print(f"AI took {end_time - start_time:.2f} seconds to decide")
+                
+                # Check for multi-jumps
+                if not turn_complete:
+                    continue
+            else:
+                print("AI could not find a valid move.")
+        
+        # Check if game is over
+        if game.check_game_over():
+            break
+        
+        # Switch turns if no multi-jump is pending
+        if not game.must_jump:
+            game.switch_turn()
+    
+    # Game over
+    game.print_board()
+    if game.winner == 1:
+        print("Congratulations! You win!")
+    elif game.winner == 2:
+        print("AI wins. Better luck next time!")
+    else:
+        print("The game is a draw.")
+
+
+if __name__ == "__main__":
+    main()
