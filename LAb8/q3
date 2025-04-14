@@ -1,0 +1,440 @@
+import numpy as np
+import random
+from collections import deque
+
+
+class BattleshipGame:
+    def __init__(self, grid_size=10, num_ships=5):
+        """Initialize the Battleship game with the specified grid size and number of ships"""
+        self.grid_size = grid_size
+        self.num_ships = num_ships
+        
+        # Initialize player boards: 0 = empty, 1 = ship, 2 = hit, 3 = miss
+        self.player_board = np.zeros((grid_size, grid_size), dtype=int)
+        self.ai_board = np.zeros((grid_size, grid_size), dtype=int)
+        
+        # Keep track of shots
+        self.player_shots = np.zeros((grid_size, grid_size), dtype=int)  # 0 = not tried, 1 = hit, 2 = miss
+        self.ai_shots = np.zeros((grid_size, grid_size), dtype=int)
+        
+        # Ships remaining
+        self.player_ships_remaining = num_ships
+        self.ai_ships_remaining = num_ships
+        
+        # AI knowledge
+        self.hunt_mode = True  # True for random searching, False for targeted approach
+        self.hit_stack = deque()  # Stack of coordinates to check around a hit
+        self.last_hit = None
+        
+        # Game history
+        self.history = []
+    
+    def place_ships_randomly(self, board):
+        """Randomly place ships on the given board"""
+        ships_placed = 0
+        ship_sizes = [5, 4, 3, 3, 2]  # Standard Battleship ship sizes
+        
+        if self.num_ships < len(ship_sizes):
+            ship_sizes = ship_sizes[:self.num_ships]
+        
+        while ships_placed < self.num_ships:
+            # If we've placed all standard ships, add more ships of size 2
+            if ships_placed >= len(ship_sizes):
+                ship_size = 2
+            else:
+                ship_size = ship_sizes[ships_placed]
+            
+            # Randomly choose orientation (0 for horizontal, 1 for vertical)
+            orientation = random.randint(0, 1)
+            
+            if orientation == 0:  # Horizontal
+                row = random.randint(0, self.grid_size - 1)
+                col = random.randint(0, self.grid_size - ship_size)
+                
+                # Check if the position is valid
+                valid = True
+                for i in range(ship_size):
+                    if board[row][col + i] == 1:
+                        valid = False
+                        break
+                
+                # Place the ship if valid
+                if valid:
+                    for i in range(ship_size):
+                        board[row][col + i] = 1
+                    ships_placed += 1
+            
+            else:  # Vertical
+                row = random.randint(0, self.grid_size - ship_size)
+                col = random.randint(0, self.grid_size - 1)
+                
+                # Check if the position is valid
+                valid = True
+                for i in range(ship_size):
+                    if board[row + i][col] == 1:
+                        valid = False
+                        break
+                
+                # Place the ship if valid
+                if valid:
+                    for i in range(ship_size):
+                        board[row + i][col] = 1
+                    ships_placed += 1
+    
+    def setup_game(self):
+        """Initialize the game by placing ships for both players"""
+        self.place_ships_randomly(self.player_board)
+        self.place_ships_randomly(self.ai_board)
+    
+    def convert_coordinate(self, coord_str):
+        """Convert a string coordinate (e.g., 'A5') to row, col indices"""
+        if not coord_str or len(coord_str) < 2:
+            return None
+        
+        try:
+            col = ord(coord_str[0].upper()) - ord('A')
+            row = int(coord_str[1:]) - 1
+            
+            if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
+                return row, col
+            else:
+                return None
+        except ValueError:
+            return None
+    
+    def inverse_convert_coordinate(self, row, col):
+        """Convert row, col indices to a string coordinate (e.g., 'A5')"""
+        return f"{chr(col + ord('A'))}{row + 1}"
+    
+    def player_attack(self, coord_str):
+        """Process a player's attack"""
+        coord = self.convert_coordinate(coord_str)
+        if not coord:
+            return "Invalid coordinate. Please enter a valid position (e.g., B4)."
+        
+        row, col = coord
+        
+        # Check if this position has already been attacked
+        if self.player_shots[row][col] != 0:
+            return "You have already attacked this position. Try another."
+        
+        # Process the attack
+        hit = False
+        if self.ai_board[row][col] == 1:  # Ship present
+            self.player_shots[row][col] = 1  # Hit
+            self.ai_board[row][col] = 2  # Mark as hit on AI board
+            hit = True
+            
+            # Check if ship is completely destroyed
+            ship_destroyed = True
+            for r in range(self.grid_size):
+                for c in range(self.grid_size):
+                    # Check if there are any remaining ship parts
+                    if self.ai_board[r][c] == 1 and self.is_same_ship(row, col, r, c):
+                        ship_destroyed = False
+                        break
+            
+            if ship_destroyed:
+                self.ai_ships_remaining -= 1
+                result = f"Player attacks: {coord_str} - Hit! Ship sunk!"
+            else:
+                result = f"Player attacks: {coord_str} - Hit!"
+        else:
+            self.player_shots[row][col] = 2  # Miss
+            result = f"Player attacks: {coord_str} - Miss."
+        
+        self.history.append(result)
+        return result
+    
+    def is_same_ship(self, row1, col1, row2, col2):
+        """Check if two coordinates belong to the same ship (simplified)"""
+        # This is a simplified approach that assumes ships are only vertical or horizontal
+        # A more accurate implementation would track ship IDs
+        
+        # Check if the coordinates are in the same row
+        if row1 == row2:
+            min_col = min(col1, col2)
+            max_col = max(col1, col2)
+            
+            # Check if all cells between them are part of a ship (hit or not)
+            for c in range(min_col, max_col + 1):
+                if self.ai_board[row1][c] == 0 or self.ai_board[row1][c] == 3:
+                    return False
+            return True
+        
+        # Check if the coordinates are in the same column
+        elif col1 == col2:
+            min_row = min(row1, row2)
+            max_row = max(row1, row2)
+            
+            # Check if all cells between them are part of a ship (hit or not)
+            for r in range(min_row, max_row + 1):
+                if self.ai_board[r][col1] == 0 or self.ai_board[r][col1] == 3:
+                    return False
+            return True
+        
+        return False
+    
+    def ai_attack(self):
+        """AI attack strategy using probability-based targeting"""
+        if self.hunt_mode:
+            # Hunt mode - use probability to find a good target
+            target = self.probability_hunting()
+        else:
+            # Target mode - attack around known hits
+            if self.hit_stack:
+                target = self.hit_stack.pop()
+            else:
+                self.hunt_mode = True
+                target = self.probability_hunting()
+        
+        row, col = target
+        coord_str = self.inverse_convert_coordinate(row, col)
+        
+        # Process the attack
+        if self.player_board[row][col] == 1:  # Hit
+            self.ai_shots[row][col] = 1
+            self.player_board[row][col] = 2  # Mark as hit
+            
+            # Switch to target mode and add adjacent cells to stack
+            self.hunt_mode = False
+            self.last_hit = (row, col)
+            self.add_adjacent_to_stack(row, col)
+            
+            # Check if ship is completely destroyed
+            ship_destroyed = True
+            for r in range(self.grid_size):
+                for c in range(self.grid_size):
+                    if self.player_board[r][c] == 1 and self.is_same_ship_player(row, col, r, c):
+                        ship_destroyed = False
+                        break
+            
+            if ship_destroyed:
+                self.player_ships_remaining -= 1
+                result = f"AI attacks: {coord_str} - Hit! Ship sunk!"
+                # If ship is sunk, go back to hunt mode
+                self.hunt_mode = True
+                self.hit_stack.clear()
+            else:
+                result = f"AI attacks: {coord_str} - Hit!"
+        else:
+            self.ai_shots[row][col] = 2
+            self.player_board[row][col] = 3  # Mark as miss
+            result = f"AI attacks: {coord_str} - Miss."
+        
+        self.history.append(result)
+        return result
+    
+    def is_same_ship_player(self, row1, col1, row2, col2):
+        """Check if two coordinates belong to the same ship on player's board"""
+        # Similar to is_same_ship but for player_board
+        if row1 == row2:
+            min_col = min(col1, col2)
+            max_col = max(col1, col2)
+            
+            for c in range(min_col, max_col + 1):
+                if self.player_board[row1][c] == 0 or self.player_board[row1][c] == 3:
+                    return False
+            return True
+        
+        elif col1 == col2:
+            min_row = min(row1, row2)
+            max_row = max(row1, row2)
+            
+            for r in range(min_row, max_row + 1):
+                if self.player_board[r][col1] == 0 or self.player_board[r][col1] == 3:
+                    return False
+            return True
+        
+        return False
+    
+    def add_adjacent_to_stack(self, row, col):
+        """Add adjacent cells to the hit stack"""
+        # Check for additional hits in each direction to determine ship orientation
+        horizontal_hit = False
+        vertical_hit = False
+        
+        # Check horizontal
+        for dc in [-1, 1]:
+            new_col = col + dc
+            if 0 <= new_col < self.grid_size and self.ai_shots[row][new_col] == 1:
+                horizontal_hit = True
+                break
+        
+        # Check vertical
+        for dr in [-1, 1]:
+            new_row = row + dr
+            if 0 <= new_row < self.grid_size and self.ai_shots[new_row][col] == 1:
+                vertical_hit = True
+                break
+        
+        # If we know the orientation, focus on those cells
+        if horizontal_hit:
+            # Add cells to the left and right if they haven't been tried
+            for dc in [-1, 1]:
+                new_col = col + dc
+                if 0 <= new_col < self.grid_size and self.ai_shots[row][new_col] == 0:
+                    self.hit_stack.append((row, new_col))
+        elif vertical_hit:
+            # Add cells above and below if they haven't been tried
+            for dr in [-1, 1]:
+                new_row = row + dr
+                if 0 <= new_row < self.grid_size and self.ai_shots[new_row][col] == 0:
+                    self.hit_stack.append((new_row, col))
+        else:
+            # If no orientation is determined, add all adjacent cells
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                new_row, new_col = row + dr, col + dc
+                if 0 <= new_row < self.grid_size and 0 <= new_col < self.grid_size and self.ai_shots[new_row][new_col] == 0:
+                    self.hit_stack.append((new_row, new_col))
+    
+    def probability_hunting(self):
+        """Use a probability-based approach to find the best attack position"""
+        # Initialize probability grid
+        prob_grid = np.zeros((self.grid_size, self.grid_size))
+        
+        # Skip cells that have already been attacked
+        for row in range(self.grid_size):
+            for col in range(self.grid_size):
+                if self.ai_shots[row][col] != 0:
+                    prob_grid[row][col] = -1  # Mark as impossible
+        
+        # Calculate probability based on possible ship placements
+        ship_sizes = [5, 4, 3, 3, 2]
+        if self.num_ships < len(ship_sizes):
+            ship_sizes = ship_sizes[:self.num_ships]
+        
+        # Consider each ship size
+        for ship_size in ship_sizes:
+            # Check horizontal placements
+            for row in range(self.grid_size):
+                for col in range(self.grid_size - ship_size + 1):
+                    if all(self.ai_shots[row][col+i] != 2 for i in range(ship_size)):
+                        # This placement is valid (no misses)
+                        for i in range(ship_size):
+                            if self.ai_shots[row][col+i] == 0:  # Only increment untried cells
+                                prob_grid[row][col+i] += 1
+            
+            # Check vertical placements
+            for row in range(self.grid_size - ship_size + 1):
+                for col in range(self.grid_size):
+                    if all(self.ai_shots[row+i][col] != 2 for i in range(ship_size)):
+                        # This placement is valid (no misses)
+                        for i in range(ship_size):
+                            if self.ai_shots[row+i][col] == 0:  # Only increment untried cells
+                                prob_grid[row+i][col] += 1
+        
+        # Find the cell with highest probability (that hasn't been tried)
+        max_prob = -1
+        candidates = []
+        
+        for row in range(self.grid_size):
+            for col in range(self.grid_size):
+                if self.ai_shots[row][col] == 0 and prob_grid[row][col] > max_prob:
+                    max_prob = prob_grid[row][col]
+                    candidates = [(row, col)]
+                elif self.ai_shots[row][col] == 0 and prob_grid[row][col] == max_prob:
+                    candidates.append((row, col))
+        
+        # Choose randomly among the best candidates
+        return random.choice(candidates) if candidates else (random.randint(0, self.grid_size-1), random.randint(0, self.grid_size-1))
+    
+    def display_boards(self):
+        """Display the game boards (player and AI)"""
+        print("\nYour Board:")
+        print("   " + " ".join(chr(65 + i) for i in range(self.grid_size)))
+        for i in range(self.grid_size):
+            row_str = f"{i+1:2d} "
+            for j in range(self.grid_size):
+                if self.player_board[i][j] == 0:
+                    row_str += "· "
+                elif self.player_board[i][j] == 1:
+                    row_str += "O "
+                elif self.player_board[i][j] == 2:
+                    row_str += "X "
+                elif self.player_board[i][j] == 3:
+                    row_str += "- "
+            print(row_str)
+        
+        print("\nAI's Board (your shots):")
+        print("   " + " ".join(chr(65 + i) for i in range(self.grid_size)))
+        for i in range(self.grid_size):
+            row_str = f"{i+1:2d} "
+            for j in range(self.grid_size):
+                if self.player_shots[i][j] == 0:
+                    row_str += "· "
+                elif self.player_shots[i][j] == 1:
+                    row_str += "X "
+                elif self.player_shots[i][j] == 2:
+                    row_str += "- "
+            print(row_str)
+    
+    def is_game_over(self):
+        """Check if the game is over"""
+        return self.player_ships_remaining == 0 or self.ai_ships_remaining == 0
+    
+    def get_winner(self):
+        """Return the winner"""
+        if self.player_ships_remaining == 0:
+            return "AI"
+        elif self.ai_ships_remaining == 0:
+            return "Player"
+        else:
+            return None
+
+
+def play_game(grid_size=10, num_ships=5):
+    """Main function to play the Battleship game"""
+    print("\n===== BATTLESHIP GAME =====")
+    print(f"Grid Size: {grid_size}x{grid_size}, Ships: {num_ships}")
+    print("Legend: O = Ship, X = Hit, - = Miss, · = Unknown")
+    
+    game = BattleshipGame(grid_size, num_ships)
+    game.setup_game()
+    
+    print("\nGame setup complete. Your ships have been placed.")
+    game.display_boards()
+    
+    # Main game loop
+    while not game.is_game_over():
+        # Player's turn
+        print("\n--- Your Turn ---")
+        valid_move = False
+        while not valid_move:
+            try:
+                coord = input("\nEnter a coordinate to attack (e.g., B4): ")
+                result = game.player_attack(coord)
+                print(result)
+                if "Invalid" not in result and "already" not in result:
+                    valid_move = True
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                print("Please try again.")
+        
+        # Check if game is over after player's move
+        if game.is_game_over():
+            break
+        
+        # AI's turn
+        print("\n--- AI's Turn ---")
+        result = game.ai_attack()
+        print(result)
+        
+        # Display boards after both moves
+        game.display_boards()
+    
+    # Game over
+    print("\n===== GAME OVER =====")
+    winner = game.get_winner()
+    if winner:
+        print(f"{winner} wins!")
+    
+    # Show history
+    print("\n--- Game History ---")
+    for move in game.history:
+        print(move)
+
+
+if __name__ == "__main__":
+    play_game(10, 5)  # Default 10x10 grid with 5 ships
+
