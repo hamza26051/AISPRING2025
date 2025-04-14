@@ -1,0 +1,173 @@
+class CardGame:
+    def __init__(self, cards):
+        self.cards = cards
+        self.max_score = 0
+        self.min_score = 0
+        self.history = []
+    
+    def is_game_over(self):
+        """Check if the game is over (no cards left)"""
+        return len(self.cards) == 0
+    
+    def get_possible_moves(self):
+        """Get the possible moves (leftmost or rightmost card)"""
+        if len(self.cards) == 0:
+            return []
+        elif len(self.cards) == 1:
+            return [0]  # Only one card left
+        else:
+            return [0, len(self.cards) - 1]  # Leftmost and rightmost
+    
+    def make_move(self, player, move_index):
+        """Make a move by taking a card"""
+        if move_index == 0:  # Leftmost
+            card = self.cards.pop(0)
+            position = "leftmost"
+        else:  # Rightmost
+            card = self.cards.pop(-1)
+            position = "rightmost"
+        
+        # Update scores
+        if player == "Max":
+            self.max_score += card
+        else:
+            self.min_score += card
+        
+        # Record move for history
+        self.history.append(f"{player} picks {card} ({position}), Remaining Cards: {self.cards}")
+        
+        return card
+    
+    def print_history(self):
+        """Print the game history"""
+        for move in self.history:
+            print(move)
+    
+    def print_result(self):
+        """Print the final result"""
+        print(f"\nFinal Scores - Max: {self.max_score}, Min: {self.min_score}")
+        if self.max_score > self.min_score:
+            print("Winner: Max")
+        elif self.min_score > self.max_score:
+            print("Winner: Min")
+        else:
+            print("It's a tie!")
+
+
+def minimax(game, depth, alpha, beta, maximizing_player):
+    """
+    Minimax algorithm with Alpha-Beta Pruning
+    Returns (best_score, best_move)
+    """
+    # Base case: game is over or depth limit reached
+    if game.is_game_over() or depth == 0:
+        return game.max_score - game.min_score, None
+    
+    possible_moves = game.get_possible_moves()
+    
+    if maximizing_player:  # Max's turn
+        max_eval = float('-inf')
+        best_move = None
+        
+        for move in possible_moves:
+            # Create a copy of the game to simulate the move
+            game_copy = CardGame(game.cards.copy())
+            game_copy.max_score = game.max_score
+            game_copy.min_score = game.min_score
+            
+            # Simulate the move
+            card = game_copy.cards[move]
+            game_copy.make_move("Max", move)
+            
+            # Recursively evaluate the move
+            eval_score, _ = minimax(game_copy, depth - 1, alpha, beta, False)
+            
+            if eval_score > max_eval:
+                max_eval = eval_score
+                best_move = move
+            
+            alpha = max(alpha, eval_score)
+            if beta <= alpha:
+                break  # Beta cutoff
+        
+        return max_eval, best_move
+    
+    else:  # Min's turn
+        min_eval = float('inf')
+        best_move = None
+        
+        for move in possible_moves:
+            # Create a copy of the game to simulate the move
+            game_copy = CardGame(game.cards.copy())
+            game_copy.max_score = game.max_score
+            game_copy.min_score = game.min_score
+            
+            # Simulate the move
+            card = game_copy.cards[move]
+            game_copy.make_move("Min", move)
+            
+            # Recursively evaluate the move
+            eval_score, _ = minimax(game_copy, depth - 1, alpha, beta, True)
+            
+            if eval_score < min_eval:
+                min_eval = eval_score
+                best_move = move
+            
+            beta = min(beta, eval_score)
+            if beta <= alpha:
+                break  # Alpha cutoff
+        
+        return min_eval, best_move
+
+
+def min_strategy(game):
+    """Min's strategy: always choose the card with the lowest value"""
+    possible_moves = game.get_possible_moves()
+    if len(possible_moves) == 1:
+        return possible_moves[0]
+    
+    left_card = game.cards[0]
+    right_card = game.cards[-1]
+    
+    if left_card <= right_card:
+        return 0  # Choose leftmost (smaller value)
+    else:
+        return len(game.cards) - 1  # Choose rightmost (smaller value)
+
+
+def play_game(cards):
+    """Play the card game with Max using minimax and Min using simple strategy"""
+    print(f"Initial Cards: {cards}")
+    
+    game = CardGame(cards.copy())
+    
+    # Continue until all cards are taken
+    while not game.is_game_over():
+        # Max's turn (using minimax with alpha-beta pruning)
+        if not game.is_game_over():
+            # Calculate the move depth based on the number of cards
+            depth = min(len(game.cards), 8)  # Limit depth for larger games
+            
+            _, best_move = minimax(game, depth, float('-inf'), float('inf'), True)
+            game.make_move("Max", best_move)
+        
+        # Min's turn (using simple strategy)
+        if not game.is_game_over():
+            min_move = min_strategy(game)
+            game.make_move("Min", min_move)
+    
+    # Print game history and result
+    game.print_history()
+    game.print_result()
+    
+    return game.max_score, game.min_score
+
+
+if __name__ == "__main__":
+   
+    sample_cards = [4, 10, 6, 2, 9, 5]
+    play_game(sample_cards)
+    
+    print("\n--- Another Example ---")
+    another_example = [7, 3, 5, 8, 2, 9, 4]
+    play_game(another_example)
